@@ -70,32 +70,35 @@ MAX_HEALTH    = 100
 POISON_DAMAGE =  10
 MAX_STEPS     = 300
 
-# Fixed 15x15 maze layout
+# Fixed 15x17 maze layout
+# S = top-left, G = bottom-right  (no trivial top-row shortcut)
+# Two routes exist: a centre path and a top-right detour — both are long
+# and hazard-blocked, forcing genuine exploration.
 # '#' = wall, '.' = empty, 'S' = start, 'G' = goal,
-# 'T' = trap, 'P' = poison, 'M' = enemy patrol start
+# 'T' = trap,  'P' = poison
 MAZE_TEMPLATE = [
     "#################",
-    "#S..#...T...#..G#",
-    "#.#.#.#####.#.###",
-    "#.#...#...#.....#",
-    "#.###.#.#.#####.#",
-    "#.#P..#.#.....#.#",
-    "#.#.###.#####.#.#",
-    "#...#.....#...#.#",
-    "#.###.###.#.###.#",
-    "#.#T..#.#...#...#",
-    "#.#.#.#.#####.#.#",
-    "#...#.P.......#.#",
-    "#.#####.#####.#.#",
-    "#.......#M....#.#",
+    "#S.#............#",
+    "#.##.#########..#",
+    "#.....#.....#P..#",
+    "###.#.#.###.#.###",
+    "#...#.T.#...#.#.#",
+    "#.###.#.#.###.#.#",
+    "#.#...#...#T..#.#",
+    "#.#.#####.#.###.#",
+    "#...#P....#.#...#",
+    "###.#.###.#.#.###",
+    "#.....#...#...#.#",
+    "#.###.#.#...#...#",
+    "#...#...#......G#",
     "#################",
 ]
 
-# Patrol paths for enemies (list of (row, col) waypoints)
+# Patrol paths for enemies (list of (row, col) waypoints — ping-pong)
 PATROL_PATHS = [
-    [(13, 9), (13, 10), (13, 11), (13, 12)],   # Enemy 0: bottom horizontal
-    [(5, 1),  (6, 1),  (7, 1),  (8, 1),  (9, 1), (10, 1), (11, 1)],  # Enemy 1: left corridor vertical
-    [(7, 5),  (7, 6),  (7, 7),  (7, 8),  (7, 9)],  # Enemy 2: middle horizontal
+    [(13, 10), (13, 11), (13, 12), (13, 13), (13, 14)],  # Enemy 0: final-stretch patrol
+    [(3,  5),  (4,  5),  (5,  5),  (6,  5),  (7,  5)],  # Enemy 1: centre column patrol
+    [(9,  6),  (9,  7),  (9,  8),  (9,  9)],             # Enemy 2: lower centre row
 ]
 
 

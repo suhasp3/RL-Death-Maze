@@ -6,9 +6,9 @@ Renders the maze, agent, and enemies in real-time.
 import sys
 import pygame
 import numpy as np
-from maze_env import DeathMazeEnv, WALL, EMPTY, START, GOAL, TRAP, POISON, ENEMY, MAX_HEALTH
+from maze_env import DeathMazeEnv, WALL, EMPTY, START, GOAL, TRAP, POISON, ENEMY, PLATE, D_TRAP, MAX_HEALTH
 
-CELL        = 44
+CELL        = 24
 INFO_H      = 90
 BORDER      = 1
 
@@ -20,6 +20,8 @@ PALETTE = {
     TRAP:   (215, 48,  48),
     POISON: (148, 28,  185),
     ENEMY:  (30,  120, 225),
+    PLATE:  (0, 255, 255),    # Cyan for the Pressure Plate
+    D_TRAP: (180, 180, 180),  # Light gray for deactivated traps
 }
 AGENT_COLOR   = (255, 95,  30)
 AGENT_RING    = (255, 185, 120)
@@ -57,7 +59,7 @@ class MazeVisualizer:
     # ------------------------------------------------------------------
     def _draw_grid(self):
         env = self.env
-        grid = env.base_grid.copy()
+        grid = env.current_grid.copy()
         for e in env.enemies:
             er, ec = e.pos
             grid[er, ec] = ENEMY

@@ -57,13 +57,14 @@ ACTION_DELTAS = {
 
 # Rewards (REMOVED R_PLATE)
 R_GOAL    = 1000
-R_STEP    = -0.5  # reduced so exploration isn't punished so heavily
+R_STEP    = -0.5
 R_WALL    = -4
 R_TRAP    = -50
 R_POISON  = -5
 R_DEATH   = -300
-R_CLOSER  =  0.15  # reduced so detour to plate isn't suppressed
+R_CLOSER  =  0.15
 R_FARTHER = -0.15
+R_EXPLORE =  0.75  # bonus for visiting a cell for the first time this episode
 
 MAX_HEALTH    = 100
 TRAP_DAMAGE   = 50   # 2 hits = Death. 
@@ -158,6 +159,8 @@ class DeathMazeEnv(_Env):
         self.done = False
         self.plate_activated = False
         self.current_grid = self.initial_grid.copy()
+        self.visited = set()
+        self.visited.add(self.agent_pos)
         for e in self.enemies: e.reset()
         return self._get_obs(), {}
 
@@ -196,6 +199,9 @@ class DeathMazeEnv(_Env):
                 reward += R_WALL
             else:
                 self.agent_pos = (nr, nc)
+                if self.agent_pos not in self.visited:
+                    reward += R_EXPLORE
+                    self.visited.add(self.agent_pos)
 
         new_dist = abs(self.agent_pos[0]-self.goal_pos[0]) + abs(self.agent_pos[1]-self.goal_pos[1])
         reward += R_CLOSER if new_dist < prev_dist else R_FARTHER

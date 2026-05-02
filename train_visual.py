@@ -21,8 +21,8 @@ from dqn_agent import DQNAgent
 from visualizer import MazeVisualizer
 
 # Episodes at which we pause and show a live demo
-DEMO_EPISODES = {1, 50, 200, 500, 1000, 2000, 3000}
-N_EPISODES    = 3000
+DEMO_EPISODES = {1, 100, 500, 1000, 2000, 4000, 6000, 8000}
+N_EPISODES    = 8000
 DEMO_FPS      = 8   # slow enough to watch
 TRAIN_UPDATE  = 50  # refresh training screen every N episodes
 
@@ -41,8 +41,8 @@ def main():
         lr=1e-3,
         gamma=0.99,
         epsilon_start=1.0,
-        epsilon_end=0.05,
-        epsilon_decay=0.9995,
+        epsilon_end=0.085,
+        epsilon_decay=0.99995,
         batch_size=64,
         target_update_freq=500,
     )

@@ -1,12 +1,15 @@
 """
-Death Maze RL - Custom Gym Environment
-A 15x15 grid maze with traps, poison tiles, and patrolling enemies.
+Death Maze RL - Custom Gym Environment (25x25)
+Sparse Reward Version: Agent must discover the Plate-Trap connection 
+without a direct reward signal for the plate.
 """
 
 import numpy as np
 import random
 
-# Minimal Gym-compatible base (no gymnasium required)
+# -----------------------------------------------------------------------
+# Gym-compatible base classes
+# -----------------------------------------------------------------------
 class _Env:
     def reset(self, seed=None, options=None):
         if seed is not None:
@@ -16,37 +19,33 @@ class _Env:
     def render(self): ...
     def close(self): ...
 
-class _Space:
-    pass
-
-class _Box(_Space):
+class _Box:
     def __init__(self, low, high, shape, dtype=np.float32):
         self.low = np.full(shape, low, dtype=dtype)
         self.high = np.full(shape, high, dtype=dtype)
         self.shape = shape
         self.dtype = dtype
 
-class _Discrete(_Space):
+class _Discrete:
     def __init__(self, n):
         self.n = n
     def sample(self):
         return np.random.randint(self.n)
 
-# Tile types
-EMPTY   = 0
-WALL    = 1
-START   = 2
-GOAL    = 3
-TRAP    = 4
-POISON  = 5
-ENEMY   = 6  # rendered position only
+# -----------------------------------------------------------------------
+# Constants & Tile Types
+# -----------------------------------------------------------------------
+EMPTY    = 0
+WALL     = 1
+START    = 2
+GOAL     = 3
+TRAP     = 4
+POISON   = 5
+ENEMY    = 6
+PLATE    = 7  
+D_TRAP   = 8  
 
-# Actions
-UP    = 0
-DOWN  = 1
-LEFT  = 2
-RIGHT = 3
-WAIT  = 4
+UP, DOWN, LEFT, RIGHT, WAIT = 0, 1, 2, 3, 4
 
 ACTION_DELTAS = {
     UP:    (-1,  0),
@@ -56,73 +55,60 @@ ACTION_DELTAS = {
     WAIT:  ( 0,  0),
 }
 
-# Rewards
-R_GOAL        =  100
-R_STEP        =   -1
-R_WALL        =   -3
-R_TRAP        =  -20
-R_POISON      =   -5
-R_DEATH       = -100
-R_CLOSER      =  0.5
-R_FARTHER     = -0.5
+# Rewards (REMOVED R_PLATE)
+R_GOAL    = 1000
+R_STEP    = -0.5
+R_WALL    = -4
+R_TRAP    = -50
+R_POISON  = -5
+R_DEATH   = -300
+R_CLOSER  =  0.15
+R_FARTHER = -0.15
+R_EXPLORE =  0.75  # bonus for visiting a cell for the first time this episode
 
 MAX_HEALTH    = 100
-POISON_DAMAGE =  10
-MAX_STEPS     = 300
+TRAP_DAMAGE   = 50   # 2 hits = Death. 
+POISON_DAMAGE = 10
+MAX_STEPS     = 1000 # Increased to allow for more exploration
 
-# Fixed 15x17 maze layout
-# S = top-left, G = bottom-right  (no trivial top-row shortcut)
-# Two routes exist: a centre path and a top-right detour — both are long
-# and hazard-blocked, forcing genuine exploration.
-# '#' = wall, '.' = empty, 'S' = start, 'G' = goal,
-# 'T' = trap,  'P' = poison
+# -----------------------------------------------------------------------
+# Maze Configuration
+# -----------------------------------------------------------------------
+# 25x25 Advanced Serpentine Maze
+# S = Start (Top-Left), G = Goal (Bottom-Right), X = Pressure Plate
+# T = 21-tile wide death corridor. Unsurvivable unless X is triggered.
 MAZE_TEMPLATE = [
     "#################",
-    "#S.#............#",
-    "#.##.#########..#",
-    "#.....#.....#P..#",
-    "###.#.#.###.#.###",
-    "#...#.T.#...#.#.#",
-    "#.###.#.#.###.#.#",
-    "#.#...#...#T..#.#",
-    "#.#.#####.#.###.#",
-    "#...#P....#.#...#",
+    "#S.#......X..PP.#",
+    "#.##.############",
+    "#.....#.........#",
+    "###.#T#.###.#.###",
+    "#...#T#.#...#...#",
+    "#.###T#.#.###.#.#",
+    "#.#...#...#...#P#",
+    "#P#.#####.#.###.#",
+    "#.#.#.....#.....#",
     "###.#.###.#.#.###",
-    "#.....#...#...#.#",
-    "#.###.#.#...#...#",
-    "#...#...#......G#",
+    "#.....#P..#...#.#",
+    "#.###.#.###.#...#",
+    "#.P.#...#......G#",
     "#################",
 ]
 
-# Patrol paths for enemies (list of (row, col) waypoints — ping-pong)
 PATROL_PATHS = [
-    [(13, 10), (13, 11), (13, 12), (13, 13), (13, 14)],  # Enemy 0: final-stretch patrol
-    [(3,  5),  (4,  5),  (5,  5),  (6,  5),  (7,  5)],  # Enemy 1: centre column patrol
-    [(9,  6),  (9,  7),  (9,  8),  (9,  9)],             # Enemy 2: lower centre row
+    [(13, 5), (12, 5), (11, 5), (10, 5), (9, 5)],  # Enemy Bottom Left
+    [(3,  10),  (3,  11),  (3,  12),  (3,  13),  (3,  14),  (3,  15)],  # Enemy Top Right
+    [(9,  13),  (10,  13),  (11,  13),  (12,  13),  (13,  13)] # Enemy Bottom Right
 ]
 
-
-def parse_maze(template):
-    """Convert string template to numpy grid and extract special positions."""
-    char_map = {
-        '#': WALL, '.': EMPTY, 'S': START, 'G': GOAL,
-        'T': TRAP,  'P': POISON, 'M': EMPTY,  # M tile is walkable, enemy overlaid
-    }
-    rows = []
-    for line in template:
-        row = [char_map[c] for c in line]
-        rows.append(row)
-    grid = np.array(rows, dtype=np.int32)
-    return grid
-
-
+# -----------------------------------------------------------------------
+# Helper Classes
+# -----------------------------------------------------------------------
 class PatrolEnemy:
-    """An enemy that walks a fixed waypoint loop."""
-
     def __init__(self, path):
         self.path = path
         self.idx = 0
-        self.direction = 1  # 1 = forward, -1 = backward (ping-pong)
+        self.direction = 1
 
     @property
     def pos(self):
@@ -139,167 +125,142 @@ class PatrolEnemy:
         self.idx = 0
         self.direction = 1
 
+def parse_maze(template):
+    char_map = {
+        '#': WALL, '.': EMPTY, 'S': START, 'G': GOAL,
+        'T': TRAP, 'P': POISON, 'X': PLATE, 'M': EMPTY, 'D': D_TRAP
+    }
+    return np.array([[char_map[c] for c in line] for line in template], dtype=np.int32)
 
+# -----------------------------------------------------------------------
+# Main Environment
+# -----------------------------------------------------------------------
 class DeathMazeEnv(_Env):
-    """
-    Death Maze RL Environment.
-
-    Observation: flat vector of [agent_row, agent_col, health,
-                                  local 5x5 patch (25 values),
-                                  dist_to_goal]
-    Action: Discrete(5) — UP, DOWN, LEFT, RIGHT, WAIT
-    """
-
-    metadata = {"render_modes": ["ansi"]}
-
     def __init__(self, render_mode=None):
         super().__init__()
         self.render_mode = render_mode
-        self.base_grid = parse_maze(MAZE_TEMPLATE)
-        self.H, self.W = self.base_grid.shape
-
-        # Find start and goal
-        self.start_pos = tuple(zip(*np.where(self.base_grid == START)))[0]
-        self.goal_pos  = tuple(zip(*np.where(self.base_grid == GOAL)))[0]
-        self.start_pos = (int(self.start_pos[0]), int(self.start_pos[1]))
-        self.goal_pos  = (int(self.goal_pos[0]),  int(self.goal_pos[1]))
-
-        # Enemies
+        self.initial_grid = parse_maze(MAZE_TEMPLATE)
+        self.H, self.W = self.initial_grid.shape
+        self.start_pos = tuple(zip(*np.where(self.initial_grid == START)))[0]
+        self.goal_pos  = tuple(zip(*np.where(self.initial_grid == GOAL)))[0]
         self.enemies = [PatrolEnemy(path) for path in PATROL_PATHS]
 
-        # Observation: 3 scalars + 25 local patch + 1 dist = 29
-        obs_size = 3 + 25 + 1
-        self.observation_space = _Box(
-            low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32
-        )
+        # Observation: includes a bit to tell the agent if the plate is on/off
+        obs_size = 3 + 25 + 1 + 1
+        self.observation_space = _Box(low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32)
         self.action_space = _Discrete(5)
+        self.reset()
 
-        self.agent_pos = self.start_pos
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.agent_pos = (int(self.start_pos[0]), int(self.start_pos[1]))
         self.health = MAX_HEALTH
         self.steps = 0
         self.done = False
+        self.plate_activated = False
+        self.current_grid = self.initial_grid.copy()
+        self.visited = set()
+        self.visited.add(self.agent_pos)
+        for e in self.enemies: e.reset()
+        return self._get_obs(), {}
 
-    # ------------------------------------------------------------------
     def _get_obs(self):
         r, c = self.agent_pos
-        # Build current grid with enemies overlaid
-        grid = self.base_grid.copy()
+        grid_view = self.current_grid.copy()
         for e in self.enemies:
             er, ec = e.pos
-            grid[er, ec] = ENEMY
+            grid_view[er, ec] = ENEMY
 
-        # 5x5 local patch (padded with walls outside bounds)
-        patch = np.ones((5, 5), dtype=np.float32)  # default = wall = 1
+        patch = np.ones((5, 5), dtype=np.float32)
         for dr in range(-2, 3):
             for dc in range(-2, 3):
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < self.H and 0 <= nc < self.W:
-                    patch[dr + 2, dc + 2] = grid[nr, nc] / 6.0  # normalize
+                    patch[dr + 2, dc + 2] = grid_view[nr, nc] / 8.0
 
         dist = (abs(r - self.goal_pos[0]) + abs(c - self.goal_pos[1])) / (self.H + self.W)
 
-        obs = np.array([
-            r / self.H,
-            c / self.W,
-            self.health / MAX_HEALTH,
-            *patch.flatten(),
-            dist,
+        return np.array([
+            r / self.H, c / self.W, self.health / MAX_HEALTH,
+            *patch.flatten(), dist, float(self.plate_activated)
         ], dtype=np.float32)
-        return obs
 
-    def _manhattan(self, a, b):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-    # ------------------------------------------------------------------
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.agent_pos = self.start_pos
-        self.health = MAX_HEALTH
-        self.steps = 0
-        self.done = False
-        for e in self.enemies:
-            e.reset()
-        return self._get_obs(), {}
-
-    # ------------------------------------------------------------------
     def step(self, action):
-        assert not self.done, "Call reset() before stepping."
         self.steps += 1
         reward = R_STEP
-        terminated = False
-        truncated = False
         info = {}
+        prev_dist = abs(self.agent_pos[0]-self.goal_pos[0]) + abs(self.agent_pos[1]-self.goal_pos[1])
 
-        prev_dist = self._manhattan(self.agent_pos, self.goal_pos)
-
-        # --- Move agent ---
         dr, dc = ACTION_DELTAS[action]
         nr, nc = self.agent_pos[0] + dr, self.agent_pos[1] + dc
 
-        if action == WAIT:
-            pass  # stay in place, still pay step cost
-        elif not (0 <= nr < self.H and 0 <= nc < self.W) or self.base_grid[nr, nc] == WALL:
-            reward += R_WALL
-        else:
-            self.agent_pos = (nr, nc)
+        if action != WAIT:
+            if not (0 <= nr < self.H and 0 <= nc < self.W) or self.current_grid[nr, nc] == WALL:
+                reward += R_WALL
+            else:
+                self.agent_pos = (nr, nc)
+                if self.agent_pos not in self.visited:
+                    reward += R_EXPLORE
+                    self.visited.add(self.agent_pos)
 
-        # --- Shaping: distance reward ---
-        new_dist = self._manhattan(self.agent_pos, self.goal_pos)
-        if new_dist < prev_dist:
-            reward += R_CLOSER
-        elif new_dist > prev_dist:
-            reward += R_FARTHER
+        new_dist = abs(self.agent_pos[0]-self.goal_pos[0]) + abs(self.agent_pos[1]-self.goal_pos[1])
+        reward += R_CLOSER if new_dist < prev_dist else R_FARTHER
 
-        # --- Check tile effects ---
-        tile = self.base_grid[self.agent_pos[0], self.agent_pos[1]]
-
-        if tile == GOAL:
-            reward += R_GOAL
-            terminated = True
-            info["outcome"] = "goal"
+        tile = self.current_grid[self.agent_pos[0], self.agent_pos[1]]
+        
+        # PLATE LOGIC: No reward, just environment change
+        if tile == PLATE and not self.plate_activated:
+            self.plate_activated = True
+            self.current_grid[self.current_grid == TRAP] = D_TRAP
+            # print("Stepped on Plate")
 
         elif tile == TRAP:
             reward += R_TRAP
-            self.health -= 30
-            info["hit_trap"] = True
-
+            self.health -= TRAP_DAMAGE
+        #     if self.plate_activated:
+        #         print("Trap deactivated by Plate!")
+        # elif tile == D_TRAP:
+        #     print("Stepped on Deactivated Trap")
+            
         elif tile == POISON:
             reward += R_POISON
             self.health -= POISON_DAMAGE
-            info["hit_poison"] = True
+            
 
-        # --- Move enemies ---
+        elif tile == GOAL:
+            reward += R_GOAL
+            self.done = True
+            info["outcome"] = "goal"
+
         for e in self.enemies:
             e.step()
             if e.pos == self.agent_pos:
                 reward += R_DEATH
                 self.health = 0
-                info["killed_by_enemy"] = True
+                # print("Caught by Enemy!")
 
-        # --- Death check ---
         if self.health <= 0:
             reward += R_DEATH
-            terminated = True
+            self.done = True
             info["outcome"] = "dead"
-
-        # --- Timeout ---
-        if self.steps >= MAX_STEPS:
-            truncated = True
+        elif self.steps >= MAX_STEPS:
+            self.done = True
             info["outcome"] = "timeout"
 
-        self.done = terminated or truncated
-        return self._get_obs(), reward, terminated, truncated, info
+        return self._get_obs(), reward, self.done, (self.steps >= MAX_STEPS), info
 
-    # ------------------------------------------------------------------
     def render(self):
-        grid = [list(row) for row in MAZE_TEMPLATE]
-        # Place enemies
-        for e in self.enemies:
-            er, ec = e.pos
-            grid[er][ec] = 'M'
-        # Place agent
-        r, c = self.agent_pos
-        grid[r][c] = 'A'
-        print(f"Steps: {self.steps}  Health: {self.health}")
-        print('\n'.join(''.join(row) for row in grid))
-        print()
+        char_map = {WALL: '#', EMPTY: '.', START: 'S', GOAL: 'G', 
+                    TRAP: 'T', POISON: 'P', PLATE: 'X', D_TRAP: '_'}
+        res = []
+        for r in range(self.H):
+            row = []
+            for c in range(self.W):
+                char = char_map.get(self.current_grid[r, c], '?')
+                for e in self.enemies:
+                    if (r, c) == e.pos: char = 'M'
+                if (r, c) == self.agent_pos: char = 'A'
+                row.append(char)
+            res.append("".join(row))
+        print(f"Step: {self.steps} | Health: {self.health} | Plate: {'ON' if self.plate_activated else 'OFF'}")
+        print("\n".join(res) + "\n")

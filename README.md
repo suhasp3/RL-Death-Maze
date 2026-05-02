@@ -3,6 +3,7 @@
 **DATA 522 Final Project — Reinforcement Learning on a Dynamic Maze Environment**
 
 > Train RL agents (Q-Learning & DQN) to navigate a hazardous 15×15 maze filled with traps, poison tiles, and patrolling enemies.
+<img width="478" height="452" alt="image" src="https://github.com/user-attachments/assets/e8a6409b-96b4-4a24-b3fb-6e1036adddc3" />
 
 ---
 

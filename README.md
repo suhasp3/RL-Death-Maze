@@ -120,11 +120,5 @@ Outputs saved to `./outputs/`:
 | Replay buffer | `ReplayBuffer` in DQN |
 | Target network | Stable Bellman targets |
 
----
 
-## Team
-- **Hamzah** — End-to-end integration, data preprocessing, CNN architecture
-- **Nandini** — CNN architecture design and fine-tuning
-- **Suhas** — DQN training loop and loss functions
-- **Shriyans** — Hyperparameter tuning, convergence monitoring, evaluation
 # RL-Death-Maze
